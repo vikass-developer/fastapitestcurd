@@ -7,9 +7,11 @@ from .cleaning import (
     missing_report,
     standardize_columns,
 )
+from .features import build_features
 from .io import read_table, write_table
 
 __all__ = [
+    "build_features",
     "clean_strings",
     "clip_outliers",
     "fill_missing",

@@ -1,17 +1,23 @@
-"""Pydantic schemas for the Item resource."""
+"""Pydantic schemas for items, passengers and the analytics endpoints."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
 Name = Annotated[str, Field(min_length=1, max_length=100, description="Display name")]
 Description = Annotated[str | None, Field(max_length=500, description="Optional long text")]
-Price = Annotated[float, Field(gt=0, le=1_000_000, description="Unit price, must be > 0")]
+# Rounded to cents so the in-memory and SQL (DECIMAL(12,2)) stores return the same value.
+Price = Annotated[
+    float,
+    Field(gt=0, le=1_000_000, description="Unit price, must be > 0 (rounded to 2 decimals)"),
+    AfterValidator(lambda value: round(value, 2)),
+]
 Tags = Annotated[
-    list[str], Field(max_length=10, description="Up to 10 labels, stored lowercase and unique")
+    list[str],
+    Field(max_length=10, description="Up to 10 labels (max 50 chars), stored lowercase and unique"),
 ]
 
 
@@ -19,8 +25,8 @@ def _normalize_tags(tags: list[str] | None) -> list[str] | None:
     if tags is None:
         return None
     cleaned = [tag.strip().lower() for tag in tags]
-    if any(not tag for tag in cleaned):
-        raise ValueError("tags must not be blank")
+    if any(not tag or len(tag) > 50 for tag in cleaned):
+        raise ValueError("tags must be 1-50 characters")
     return list(dict.fromkeys(cleaned))  # dedupe, keep order
 
 
@@ -88,3 +94,56 @@ class Item(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str = Field(examples=["Item 42 not found"])
+
+
+class Passenger(BaseModel):
+    """One row of the cleaned Titanic dataset."""
+
+    passenger_id: int
+    survived: bool
+    pclass: int = Field(description="Ticket class: 1, 2 or 3")
+    name: str
+    sex: str
+    age: float
+    sib_sp: int = Field(description="Siblings or spouses aboard")
+    parch: int = Field(description="Parents or children aboard")
+    ticket: str
+    fare: float
+    embarked: str = Field(description="C = Cherbourg, Q = Queenstown, S = Southampton")
+
+
+class _SurvivalStats(BaseModel):
+    passengers: int
+    survivors: int
+    survival_rate_pct: float
+
+
+class ClassSexSurvival(_SurvivalStats):
+    pclass: int
+    sex: str
+
+
+class AgeGroupSurvival(_SurvivalStats):
+    age_group: str
+
+
+class FamilySizeSurvival(_SurvivalStats):
+    family_size: int
+
+
+class RankedPassenger(BaseModel):
+    pclass: int
+    age_rank: int
+    passenger_id: int
+    name: str
+    age: float
+    survived: bool
+
+
+class PortSummary(BaseModel):
+    embarked: str
+    port_name: str
+    passengers: int
+    avg_fare: float
+    survival_rate_pct: float
+    share_pct: float = Field(description="Share of all passengers, in percent")

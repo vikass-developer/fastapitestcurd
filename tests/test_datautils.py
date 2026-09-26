@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from datautils import (
+    build_features,
     clean_strings,
     clip_outliers,
     fill_missing,
@@ -44,6 +45,25 @@ def test_missing_report() -> None:
     report = missing_report(df)
     assert report.index[0] == "a"
     assert report.loc["a", "missing_pct"] == 50.0
+
+
+def test_build_features() -> None:
+    df = pd.DataFrame(
+        {
+            "passenger_id": [1, 2], "survived": [0, 1], "pclass": [3, 1], "sex": ["male", "female"],
+            "age": [22.0, 38.0], "sib_sp": [0, 1], "parch": [0, 2], "fare": [7.25, 71.3],
+            "embarked": ["S", "C"],
+        }
+    )
+    out = build_features(df)
+    assert out["family_size"].tolist() == [1, 4]
+    assert out["is_alone"].tolist() == [1, 0]
+    assert out["is_female"].tolist() == [0, 1]
+    assert out[["pclass_1", "pclass_3", "embarked_C", "embarked_S"]].values.tolist() == [
+        [0, 1, 0, 1],
+        [1, 0, 1, 0],
+    ]
+    assert out.columns[-1] == "survived"
 
 
 def test_csv_json_roundtrip(tmp_path) -> None:
