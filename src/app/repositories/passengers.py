@@ -43,7 +43,7 @@ class PassengerFilter:
                 clauses.append(f"{column} {op} ?")
                 params.append(value)
         if self.name:
-            clauses.append("name LIKE ? ESCAPE '\\'")
+            clauses.append("LOWER(name) LIKE LOWER(?) ESCAPE '\\'")
             params.append(f"%{_escape_like(self.name)}%")
         return (f"WHERE {' AND '.join(clauses)}" if clauses else ""), params
 
