@@ -147,3 +147,13 @@ ruff check src tests
 ```
 
 The SQL tests create a throwaway `week1_ai_test` database, load it, and drop it at the end. If SQL Server can't be reached, they are skipped.
+
+Week 1 days 3–5: SQL Server data layer, mini-project API, and weekly review.
+
+- db/: schema, 5 analytics queries, init-db loader
+- Repository layer: in-memory or SQL Server item store, chosen with APP_STORAGE
+- New endpoints: /passengers search, /stats (5 queries), /passengers/features (JSON or CSV)
+- Refactor: separate route files, settings from environment variables
+- docs/week1-review.md: weekly summary + 10 interview questions
+- 35 tests pass; the item tests run against both memory and SQL storage
+
