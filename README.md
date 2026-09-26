@@ -51,6 +51,15 @@ uvicorn app.main:app --reload --app-dir src
 | PATCH | `/items/{id}` | Partial update |
 | DELETE | `/items/{id}` | Delete item |
 
+**OpenAPI docs:** Swagger UI at `/docs`, ReDoc at `/redoc`, and the raw schema at `/openapi.json`. Every endpoint has a summary, a tag, example request bodies, and documented 400/404/422 responses.
+
+**Validation (Pydantic v2):**
+- `name` is 1–100 characters, `description` up to 500, and `price` must be greater than 0 and at most 1,000,000. You can send up to 10 `tags`.
+- Strings are trimmed, and tags are stored lowercase without duplicates. The `?tag=` filter ignores case.
+- Unknown fields are rejected with 422.
+- A PATCH may leave fields out, but sending `null` for `name`, `price` or `tags` returns 422. Only `description` can be cleared.
+- An empty PATCH body returns 400, a missing id returns 404, and an id below 1 returns 422.
+
 Python concepts covered: type hints and `Annotated`, Pydantic models, classes (`ItemRepository`, a custom exception), `async`/`await` with `asyncio.Lock`, dependency injection, an app factory, and `pyproject.toml` packaging.
 
 ## 2. Data cleaning utilities
