@@ -1,0 +1,1 @@
+"""Small FastAPI CRUD service."""
