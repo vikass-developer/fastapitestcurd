@@ -1,8 +1,6 @@
-"""In-memory async repository for items.
+"""In-memory async item store, used for tests and for running without a database.
 
-An asyncio.Lock guards the store so concurrent requests cannot interleave
-reads and writes. Swapping this class for a database-backed one only needs
-the same async method signatures.
+An asyncio.Lock guards the dict so concurrent requests cannot interleave reads and writes.
 """
 
 from __future__ import annotations
@@ -11,16 +9,11 @@ import asyncio
 from datetime import UTC, datetime
 from itertools import count
 
-from .models import Item, ItemCreate, ItemUpdate
+from ..models import Item, ItemCreate, ItemUpdate
+from .base import NotFoundError
 
 
-class ItemNotFoundError(KeyError):
-    def __init__(self, item_id: int) -> None:
-        super().__init__(item_id)
-        self.item_id = item_id
-
-
-class ItemRepository:
+class InMemoryItemRepository:
     def __init__(self) -> None:
         self._items: dict[int, Item] = {}
         self._ids = count(1)
@@ -38,7 +31,7 @@ class ItemRepository:
             try:
                 return self._items[item_id]
             except KeyError:
-                raise ItemNotFoundError(item_id) from None
+                raise NotFoundError("Item", item_id) from None
 
     async def create(self, data: ItemCreate) -> Item:
         async with self._lock:
@@ -49,7 +42,7 @@ class ItemRepository:
     async def update(self, item_id: int, data: ItemUpdate) -> Item:
         async with self._lock:
             if item_id not in self._items:
-                raise ItemNotFoundError(item_id)
+                raise NotFoundError("Item", item_id)
             changes = data.model_dump(exclude_unset=True)
             updated = self._items[item_id].model_copy(
                 update={**changes, "updated_at": datetime.now(UTC)}
@@ -60,4 +53,4 @@ class ItemRepository:
     async def delete(self, item_id: int) -> None:
         async with self._lock:
             if self._items.pop(item_id, None) is None:
-                raise ItemNotFoundError(item_id)
+                raise NotFoundError("Item", item_id)

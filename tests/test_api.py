@@ -1,16 +1,12 @@
-import pytest
+"""Items API tests. The `client` fixture runs each test against memory and SQL storage."""
+
 from fastapi.testclient import TestClient
-
-from app.main import create_app
-
-
-@pytest.fixture
-def client() -> TestClient:
-    return TestClient(create_app())
 
 
 def test_health(client: TestClient) -> None:
-    assert client.get("/health").json() == {"status": "ok"}
+    body = client.get("/health").json()
+    assert body["status"] == "ok"
+    assert body.get("database", "ok") == "ok"
 
 
 def test_crud_flow(client: TestClient) -> None:
@@ -53,9 +49,25 @@ def test_input_normalization(client: TestClient) -> None:
     assert len(client.get("/items", params={"tag": "KITCHEN"}).json()) == 1
 
 
+def test_update_replaces_tags_and_rounds_price(client: TestClient) -> None:
+    body = {"name": "Lamp", "price": 10.005, "tags": ["home", "light"]}
+    item_id = client.post("/items", json=body).json()["id"]
+    updated = client.patch(f"/items/{item_id}", json={"tags": ["Desk"], "price": 12.499}).json()
+    assert updated["tags"] == ["desk"]
+    assert updated["price"] == 12.5
+    assert client.get("/items", params={"tag": "home"}).json() == []
+
+
+def test_pagination(client: TestClient) -> None:
+    for n in range(5):
+        client.post("/items", json={"name": f"Item {n}", "price": n + 1})
+    page = client.get("/items", params={"skip": 1, "limit": 2}).json()
+    assert [item["name"] for item in page] == ["Item 1", "Item 2"]
+
+
 def test_openapi_schema(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
-    assert schema["info"]["title"] == "Items CRUD API"
+    assert schema["info"]["title"] == "Week 1 AI Backend"
     assert "404" in schema["paths"]["/items/{item_id}"]["get"]["responses"]
     assert client.get("/docs").status_code == 200
     assert client.get("/redoc").status_code == 200
