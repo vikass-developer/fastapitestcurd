@@ -28,11 +28,13 @@ def sql_settings() -> Iterator[Settings]:
         create_database(db_settings)
     except pyodbc.Error as exc:
         pytest.skip(f"SQL Server not available: {exc}")
-    db = Database(db_settings.conn_str())
-    apply_schema(db)
-    load_passengers(db, read_table(CLEAN_CSV))
-    yield Settings(storage="sql", db=db_settings)
-    drop_database(db_settings)
+    try:
+        db = Database(db_settings.conn_str())
+        apply_schema(db)
+        load_passengers(db, read_table(CLEAN_CSV))
+        yield Settings(storage="sql", db=db_settings)
+    finally:
+        drop_database(db_settings)
 
 
 @pytest.fixture
