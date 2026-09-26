@@ -28,7 +28,7 @@ async def search_passengers(
 ) -> list[dict]:
     if min_age is not None and max_age is not None and min_age > max_age:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT, "min_age is greater than max_age"
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "min_age is greater than max_age"
         )
     filters = PassengerFilter(pclass, sex, survived, min_age, max_age, name)
     return await repo.search(filters, skip=skip, limit=limit)
