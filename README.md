@@ -41,26 +41,77 @@ A small backend with data ready for AI work: **FastAPI + SQL Server + pandas**, 
 │       ├── io.py               # CSV / JSON / JSONL read & write
 │       └── cli.py              # `clean-dataset` pipeline
 ├── data/raw/ + data/processed/ # Titanic: raw and cleaned
-├── docs/week1-review.md        # weekly summary + interview questions
-└── tests/                      # 35 tests; the SQL ones use a throwaway database
+│   └── agents/                 # LangChain agents
+│       ├── llm.py              # Groq chat model; loads .env
+│       ├── tools.py            # @tool google_search + 5 SQL data tools
+│       ├── graphs.py           # create_agent factories (memory, human approval)
+│       ├── chat.py             # `agent-chat`: test in the terminal
+│       └── server.py           # FastAPI + LangServe add_routes
+├── langgraph.json              # tells `langgraph dev` / Studio where the graphs are
+├── requirements.txt            # pinned dependencies: pip install -r requirements.txt
+├── .env.example                # copy to .env and add your API keys
+├── docs/                       # week1-review.md, agents-guide.md
+└── tests/                      # 47 tests; SQL ones use a throwaway DB, agents use a fake LLM
 ```
 
-## Setup
+## Setup (Windows, run locally)
 
-Requirements: Python 3.11+, SQL Server (any edition), and **ODBC Driver 17 or 18 for SQL Server**.
+### What you need installed first (one time)
 
-```bash
+| Prerequisite | Check it's there | Needs admin? |
+|---|---|---|
+| Python 3.11 or newer (tested on 3.14) | `python --version` | No, if installed "for current user" |
+| Git | `git --version` | Installer asks for admin |
+| SQL Server (Developer or Express edition) | SSMS connects to `localhost` | **Yes**, the installer only |
+| ODBC Driver 17 or 18 for SQL Server | `odbcad32` → Drivers tab | **Yes**, the installer only |
+| API keys for the agents: Groq, SerpAPI, LangSmith (all have free tiers) | see `.env.example` | No |
+
+After those installers, **nothing else needs admin**. Run every command below in a normal (non-admin) **cmd** or **PowerShell** window, from the project folder.
+
+### Steps
+
+```bat
+:: 1. Get the code
+git clone https://github.com/vikass-developer/fastapitestcurd.git
+cd fastapitestcurd
+
+:: 2. Create and activate a virtual environment (keeps packages out of your system Python)
 python -m venv .venv
-# Windows: .venv\Scripts\activate   |   macOS/Linux: source .venv/bin/activate
-pip install -e ".[dev]"
+.venv\Scripts\activate
 
-clean-dataset     # data/raw/titanic.csv -> data/processed/titanic_clean.{csv,json}
-init-db           # creates database week1_ai, applies schema.sql, loads 891 passengers
-uvicorn app.main:app --reload --app-dir src
-# open http://127.0.0.1:8000/docs
+:: 3. Install every dependency, pinned to tested versions, plus this project's commands
+pip install -r requirements.txt
+
+:: 4. Add your API keys (only needed for the agents)
+copy .env.example .env
+notepad .env
+
+:: 5. Prepare the data and the database
+clean-dataset
+init-db
+
+:: 6. Run the tests (47 should pass)
+pytest
 ```
 
-Configuration comes from environment variables:
+> **PowerShell only:** if `.venv\Scripts\activate` fails with *"running scripts is disabled on this system"*, run this once. It's for your own user, so no admin is needed:
+> `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+> cmd.exe doesn't have this restriction.
+
+`init-db` uses your Windows login to create the `week1_ai` database, so that login needs the **dbcreator** or **sysadmin** role in SQL Server. This is a SQL Server permission, not Windows admin. If you installed SQL Server yourself, you already have it. Otherwise, set `MSSQL_AUTH=UID=youruser;PWD=yourpassword` in `.env`.
+
+### Run it
+
+| What | Command | Open |
+|---|---|---|
+| Week 1 API only | `uvicorn app.main:app --reload --app-dir src` | http://127.0.0.1:8000/docs |
+| Week 1 API **+ agents** (LangServe) | `uvicorn agents.server:app --app-dir src --port 8001` | http://127.0.0.1:8001/docs |
+| Chat with an agent in the terminal | `agent-chat search` or `agent-chat data` (add `--approve` to approve each search) | — |
+| LangSmith Studio | `langgraph dev` | opens Studio in your browser |
+
+If `--reload` ignores your edits (common in OneDrive folders), run `set WATCHFILES_FORCE_POLLING=true` first in cmd, or `$env:WATCHFILES_FORCE_POLLING="true"` in PowerShell.
+
+Configuration comes from environment variables, or from the `.env` file:
 
 | Variable | Default | Notes |
 |---|---|---|
@@ -69,6 +120,23 @@ Configuration comes from environment variables:
 | `MSSQL_DATABASE` | `week1_ai` | |
 | `MSSQL_DRIVER` | `ODBC Driver 17 for SQL Server` | |
 | `MSSQL_AUTH` | `Trusted_Connection=yes` | Windows login; use `UID=sa;PWD=...` for a SQL login |
+| `GROQ_API_KEY` | — | Required for the agents |
+| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Any Groq model that supports tool calling |
+| `SERPAPI_API_KEY` | — | Google search tool |
+| `LANGSMITH_API_KEY`, `LANGSMITH_TRACING`, `LANGSMITH_PROJECT` | — | Tracing, and needed for Studio |
+
+## AI agents (LangChain + Groq + SerpAPI, LangSmith Studio, LangServe)
+
+The code is in [`src/agents`](src/agents). There's a step-by-step learning guide in [`docs/agents-guide.md`](docs/agents-guide.md).
+
+| Agent | Tools | Served at |
+|---|---|---|
+| `search` | `google_search` (SerpAPI), with conversation memory | `/agents/search/*`, Studio graph `search_agent` |
+| `search` with approval | the same, but every search pauses for a human decision | Studio graph `search_agent_with_approval`, `agent-chat search --approve` |
+| `data` | 5 tools wrapping the Week 1 SQL analytics queries | `/agents/data/*`, Studio graph `data_agent` |
+| `summarize` | none: a plain `prompt \| model \| parser` chain | `/agents/summarize/*` |
+
+For each agent, LangServe generates `POST /invoke`, `/batch`, `/stream` and `/stream_events`, plus `GET /input_schema` and a `/playground/` page. These sit on the same server as the Week 1 endpoints (`/items`, `/passengers`, `/stats`, `/health`).
 
 ## API endpoints
 
@@ -142,11 +210,11 @@ Titanic source: [datasciencedojo/datasets](https://github.com/datasciencedojo/da
 ## Tests and lint
 
 ```bash
-pytest               # 35 tests; items tests run against both memory and SQL storage
+pytest               # 47 tests; items tests run against both memory and SQL storage
 ruff check src tests
 ```
 
-The SQL tests create a throwaway `week1_ai_test` database, load it, and drop it at the end. If SQL Server can't be reached, they are skipped.
+The SQL tests create a throwaway `week1_ai_test` database, load it, and drop it at the end. If SQL Server can't be reached, they are skipped. The agent tests use a scripted fake chat model and a fake SerpAPI client, so they need no API keys and no internet.
 
 Week 1 days 3–5: SQL Server data layer, mini-project API, and weekly review.
 
