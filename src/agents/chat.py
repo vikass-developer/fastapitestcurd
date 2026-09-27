@@ -17,6 +17,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from .graphs import build_data_agent, build_search_agent
+from .llm import MissingKeyError, has_key
 
 
 def _print_new_messages(messages: list, already_seen: int) -> None:
@@ -49,10 +50,15 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     memory = InMemorySaver()
-    if args.agent == "search":
-        agent = build_search_agent(checkpointer=memory, require_approval=args.approve)
-    else:
-        agent = build_data_agent(checkpointer=memory)
+    try:
+        if args.agent == "search":
+            agent = build_search_agent(checkpointer=memory, require_approval=args.approve)
+        else:
+            agent = build_data_agent(checkpointer=memory)
+    except MissingKeyError as exc:
+        raise SystemExit(f"Cannot start: {exc}") from None
+    if args.agent == "search" and not has_key("SERPAPI_API_KEY"):
+        print("Note: SERPAPI_API_KEY is empty, so google_search will report it is unavailable.")
 
     config = {"configurable": {"thread_id": str(uuid.uuid4())}}
     print(f"{args.agent} agent ready. /new = new conversation, /quit = exit.\n")
@@ -72,11 +78,16 @@ def main(argv: list[str] | None = None) -> None:
             continue
 
         seen = len(agent.get_state(config).values.get("messages", []))
-        result = agent.invoke({"messages": [{"role": "user", "content": text}]}, config)
-        while "__interrupt__" in result:  # human-in-the-loop pause
-            _print_new_messages(result["messages"], seen)
-            seen = len(result["messages"])
-            result = agent.invoke(Command(resume=_ask_approval(result["__interrupt__"])), config)
+        try:
+            result = agent.invoke({"messages": [{"role": "user", "content": text}]}, config)
+            while "__interrupt__" in result:  # human-in-the-loop pause
+                _print_new_messages(result["messages"], seen)
+                seen = len(result["messages"])
+                decision = Command(resume=_ask_approval(result["__interrupt__"]))
+                result = agent.invoke(decision, config)
+        except Exception as exc:  # network, auth or rate-limit errors: report and keep chatting
+            print(f"\n  [error] {type(exc).__name__}: {exc}\n")
+            continue
         _print_new_messages(result["messages"], seen)
 
 

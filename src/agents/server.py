@@ -15,7 +15,6 @@ For each `add_routes(app, runnable, path=...)`, LangServe generates:
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 from typing import Any
 
@@ -33,7 +32,7 @@ from app.config import Settings
 from app.main import create_app
 
 from .graphs import build_data_agent, build_search_agent
-from .llm import get_chat_model
+from .llm import ENV_FILE, get_chat_model, has_key
 
 log = logging.getLogger(__name__)
 
@@ -110,8 +109,8 @@ def create_server(model: BaseChatModel | None = None, settings: Settings | None 
             for name, text in AGENTS.items()
         }
 
-    if model is None and not os.getenv("GROQ_API_KEY"):
-        log.warning("GROQ_API_KEY is not set: agent routes are disabled. Add it to .env.")
+    if model is None and not has_key("GROQ_API_KEY"):
+        log.warning("GROQ_API_KEY is empty: agent routes are disabled. Add it to %s.", ENV_FILE)
         app.state.agents_enabled = False
         return app
 

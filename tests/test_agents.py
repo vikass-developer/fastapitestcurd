@@ -169,6 +169,24 @@ def test_regular_endpoints_run_alongside_agents(server: TestClient) -> None:
     assert set(agents) == {"search", "data", "summarize"}
 
 
+def test_empty_groq_key_gives_clear_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from agents.llm import MissingKeyError, get_chat_model
+
+    monkeypatch.setenv("GROQ_API_KEY", "  ")  # present but blank, like "GROQ_API_KEY=" in .env
+    with pytest.raises(MissingKeyError, match="GROQ_API_KEY is empty"):
+        get_chat_model()
+
+
+def test_tracing_turned_off_without_langsmith_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    from agents import llm
+
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setenv("LANGSMITH_API_KEY", "")
+    monkeypatch.delenv("LANGCHAIN_API_KEY", raising=False)
+    llm._disable_tracing_without_key()
+    assert llm.os.environ["LANGSMITH_TRACING"] == "false"
+
+
 def test_agents_disabled_without_groq_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     client = TestClient(create_server(settings=Settings(storage="memory")))
