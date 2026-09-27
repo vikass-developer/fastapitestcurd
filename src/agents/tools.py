@@ -18,6 +18,8 @@ from db import Database, DbSettings, queries
 
 # ---------------------------------------------------------------- Google search (SerpAPI)
 
+SEARCH_TIMEOUT_SECONDS = 20
+
 
 @tool
 def google_search(query: str, num_results: int = 5) -> str:
@@ -31,6 +33,7 @@ def google_search(query: str, num_results: int = 5) -> str:
         query: The search query, written like you would type it into Google.
         num_results: How many results to return, from 1 to 10.
     """
+    import requests
     from serpapi import GoogleSearch
 
     api_key = os.getenv("SERPAPI_API_KEY")
@@ -38,9 +41,13 @@ def google_search(query: str, num_results: int = 5) -> str:
         return "Search is unavailable: SERPAPI_API_KEY is not set."
 
     num_results = max(1, min(num_results, 10))
-    data = GoogleSearch(
-        {"engine": "google", "q": query, "num": num_results, "api_key": api_key}
-    ).get_dict()
+    search = GoogleSearch({"engine": "google", "q": query, "num": num_results, "api_key": api_key})
+    # The client's default timeout is 60000 *seconds*; some searches took over a minute.
+    search.timeout = SEARCH_TIMEOUT_SECONDS
+    try:
+        data = search.get_dict()
+    except requests.RequestException as exc:
+        return f"Search failed ({type(exc).__name__}). Answer from what you already found."
     if "error" in data:
         return f"Search failed: {data['error']}"
 

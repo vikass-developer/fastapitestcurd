@@ -31,7 +31,7 @@ An **agent** is a loop. The LLM reads the conversation, then either answers or a
 
 | Piece | Role | Where |
 |---|---|---|
-| Groq `ChatGroq` | The LLM. Groq runs open models (Llama) very fast, and they support tool calling | [`llm.py`](../src/agents/llm.py) |
+| Groq `ChatGroq` | The LLM. Groq runs open-weight models (default `openai/gpt-oss-120b`) very fast, with tool calling | [`llm.py`](../src/agents/llm.py) |
 | SerpAPI | Returns Google results as JSON, so the agent doesn't scrape anything | [`tools.py`](../src/agents/tools.py) |
 | LangChain `create_agent` | Wires the model and tools into the agent loop | [`graphs.py`](../src/agents/graphs.py) |
 
@@ -62,10 +62,12 @@ def google_search(query: str, num_results: int = 5) -> str:
 
 **Key idea to explain to your team:** the docstring is part of the prompt. A vague docstring means the model calls the tool at the wrong times. The test `test_google_search_tool_schema_comes_from_docstring_and_hints` proves this mapping.
 
-Good tool habits used here:
+Good tool habits used here (the last two were added after live testing):
 - Return **short, readable text**, not raw JSON with 50 fields. It costs fewer tokens and the model understands it better.
 - **Never crash.** A missing key or an API error comes back as a message the model can explain to the user.
 - **Clamp inputs** (`num_results` is limited to 1–10), because models sometimes pass silly values.
+- **Set a real timeout.** The SerpAPI client's default is 60,000 *seconds*, and some searches took over a minute. It's now 20 s, after which the model is told to answer with what it has.
+- **Cap how often the tool can run.** In the first live test the model searched 9 times for one simple question (199 s). The prompt now says one search is usually enough, and `ToolCallLimitMiddleware` enforces at most 3. The same question then took about 10–30 s.
 
 The **data agent** reuses the same pattern. Its five `@tool` functions wrap the Week 1 SQL queries, so it answers from your own database instead of the web.
 
@@ -177,6 +179,10 @@ In Graph mode this graph has an extra node, `HumanInTheLoopMiddleware.after_mode
 
 Interrupts need a checkpointer, because the graph saves its state when it pauses and continues from that saved state later.
 
+**Two details learned while testing:**
+- **Make the reject message say what to do next.** With just "rejected", the model retried with a slightly different query. The message is now "Do not call any tool again; answer from your own knowledge and say it may be out of date".
+- **The 3-search cap isn't used in the approval graph.** `ToolCallLimitMiddleware` keeps its per-run counter in an `UntrackedValue`, which is not saved when the graph pauses. So it resets on every resume and can't cap searches there. In that graph the human approving each search *is* the limit.
+
 ## 11. Installing FastAPI and LangServe
 
 Both are in [`requirements.txt`](../requirements.txt): `pip install -r requirements.txt`. LangServe also needs `sse-starlette` for streaming.
@@ -189,12 +195,16 @@ add_routes(app, runnable, path="/agents/search")
 ```
 Anything that is a LangChain **Runnable** can be served this way, whether it's a chain or a compiled LangGraph agent.
 
-We wrap each agent with `as_question_answer()` so the API is simple: it takes `{"question": "..."}` and returns the answer text. The raw agent takes and returns lists of message objects, which are awkward for API clients. `.with_types(input_type=AgentQuestion, output_type=str)` gives LangServe a Pydantic model, so the input is **validated** (422 on bad input) and **documented** in `/docs`.
+We wrap each agent with `as_question_answer()` so the API is simple: it takes a question and returns the answer text. The raw agent takes and returns lists of message objects, which are awkward for API clients. `.with_types(input_type=AgentQuestion, output_type=AgentAnswer)` gives LangServe Pydantic models, so the input is **validated** (422 on bad input) and **documented** in `/docs`.
 
-Memory over HTTP: `per_req_config_modifier=ensure_thread_id` gives each request a new `thread_id` unless the client sends one:
+**Memory over HTTP:** `thread_id` is a normal field in the request, and every answer returns it. To ask a follow-up, send the `thread_id` back:
 ```json
-{"input": {"question": "And his age?"}, "config": {"configurable": {"thread_id": "my-chat"}}}
+request:  {"input": {"question": "Who is the CEO of Groq?"}}
+response: {"output": {"answer": "Jonathan Ross ...", "thread_id": "5f1c..."}}
+request:  {"input": {"question": "When did that person found it?", "thread_id": "5f1c..."}}
 ```
+
+> **Lesson learned:** the first version passed `thread_id` in `"config": {"configurable": {...}}`. It looked fine, but LangServe **silently drops** `configurable` keys that the runnable doesn't declare (check `GET /agents/search/config_schema`: it was empty). So every request became a new conversation. The unit tests had checked memory on the agent directly, not over HTTP, so they missed it. `test_memory_works_over_http` now covers it.
 
 ## 13. Auto-generated invoke and stream API endpoints
 
@@ -248,7 +258,7 @@ If `GROQ_API_KEY` is missing, the server **still starts**. The agent routes are 
 
 ## Explaining it to your team (2-minute version)
 
-> "We built a Google search agent using LangChain's `create_agent`. It's a loop where a Groq-hosted Llama model decides when to call a `google_search` tool (SerpAPI). The tool is a plain Python function with `@tool`; its docstring tells the model when to use it. A checkpointer gives it per-conversation memory by `thread_id`.
+> "We built a Google search agent using LangChain's `create_agent`. It's a loop where a Groq-hosted model (gpt-oss-120b) decides when to call a `google_search` tool (SerpAPI). The tool is a plain Python function with `@tool`; its docstring tells the model when to use it. A checkpointer gives it per-conversation memory by `thread_id`.
 > The same agent runs three ways: in the terminal for quick tests, in LangSmith Studio via `langgraph dev` (chat mode, graph mode with node-by-node state, and a human-approval interrupt before each search), and as a REST API. LangServe's `add_routes` gives us `/invoke`, `/stream` and more on our existing FastAPI app, next to our normal CRUD endpoints.
 > Every run is traced in LangSmith. The tests use a fake LLM, so CI needs no keys."
 
@@ -257,9 +267,16 @@ If `GROQ_API_KEY` is missing, the server **still starts**. The agent routes are 
 | Symptom | Fix |
 |---|---|
 | `GroqError: api_key ... must be set` | Put `GROQ_API_KEY` in `.env` in the project root |
+| `404 model_not_found` from Groq | Groq retired that model. List the current ones (see the comment in `llm.py`) and set `GROQ_MODEL` |
 | Model says it can't use tools / `tool_use_failed` | Use a Groq model that supports tool calling (set `GROQ_MODEL`) |
 | `Search is unavailable: SERPAPI_API_KEY is not set` | Add the SerpAPI key to `.env` |
 | `langgraph dev`: *attempted relative import with no known parent package* | Studio loads the graph file by path, so use absolute imports (`from agents.llm import ...`) in that file |
 | Studio page won't connect to `127.0.0.1:2024` | Use Chrome or Edge, or run `langgraph dev --tunnel` |
-| Agent "forgets" between API calls | Send the same `thread_id` in `config.configurable` |
+| Agent "forgets" between API calls | Send the `thread_id` from the previous answer inside `input` |
+| Search answers take minutes | The model was over-searching and SerpAPI calls had no real timeout. Fixed with a 3-search cap (`ToolCallLimitMiddleware`) and a 20 s timeout |
+| `UnicodeEncodeError ... '│'` when the server starts on Windows | LangServe's startup banner. `server.py` sets the console to replace characters it can't print |
+| Answers contain markers like `【3†source】` | gpt-oss's habit. `clean_answer()` strips them |
+| `400 tool_use_failed ... 'open_file'` | gpt-oss sometimes calls browser tools it was trained with but that we never gave it. The prompt says `google_search` is the only tool, and `ModelRetryMiddleware` retries that specific error up to 3 times |
+| Empty answer | The model sometimes leaves the answer in its hidden reasoning. `ask()` sends one "Please write your final answer now" in the same thread |
+| Out-of-date answers to "latest …" questions | The model puts years it remembers into its queries (e.g. "World Cup winner **2022**"). The prompt includes today's date and says not to do that. This helped for some questions but not all, so check answers to "latest" questions against the sources. A stronger model helps most |
 | No traces in LangSmith | Check `LANGSMITH_TRACING=true` and the key; look in the project named by `LANGSMITH_PROJECT` |

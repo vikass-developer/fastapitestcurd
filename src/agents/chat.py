@@ -16,8 +16,20 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
-from .graphs import build_data_agent, build_search_agent
+from .graphs import (
+    EMPTY_ANSWER_NUDGE,
+    build_data_agent,
+    build_search_agent,
+    clean_answer,
+    final_answer,
+)
 from .llm import MissingKeyError, has_key
+
+# A bare "rejected" made the model retry with a slightly different query. Say what to do instead.
+REJECT_MESSAGE = (
+    "The user rejected this search. Do not call any tool again for this question. "
+    "Answer from your own knowledge and say that it may be out of date."
+)
 
 
 def _print_new_messages(messages: list, already_seen: int) -> None:
@@ -29,7 +41,7 @@ def _print_new_messages(messages: list, already_seen: int) -> None:
             preview = str(msg.content).replace("\n", " ")
             print(f"  [tool result] {preview[:160]}{'...' if len(preview) > 160 else ''}")
         elif isinstance(msg, AIMessage) and msg.content:
-            print(f"\nAgent: {msg.content}\n")
+            print(f"\nAgent: {clean_answer(msg.content)}\n")
 
 
 def _ask_approval(interrupts) -> dict:
@@ -38,7 +50,7 @@ def _ask_approval(interrupts) -> dict:
     for action in interrupts[0].value["action_requests"]:
         answer = input(f"  Approve {action['name']}({action['args']})? [y/n] ").strip().lower()
         decisions.append({"type": "approve"} if answer.startswith("y") else {
-            "type": "reject", "message": "The user rejected this search."
+            "type": "reject", "message": REJECT_MESSAGE
         })
     return {"decisions": decisions}
 
@@ -85,6 +97,9 @@ def main(argv: list[str] | None = None) -> None:
                 seen = len(result["messages"])
                 decision = Command(resume=_ask_approval(result["__interrupt__"]))
                 result = agent.invoke(decision, config)
+            if not final_answer(result):
+                nudge = {"messages": [{"role": "user", "content": EMPTY_ANSWER_NUDGE}]}
+                result = agent.invoke(nudge, config)
         except Exception as exc:  # network, auth or rate-limit errors: report and keep chatting
             print(f"\n  [error] {type(exc).__name__}: {exc}\n")
             continue

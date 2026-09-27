@@ -19,7 +19,10 @@ _PROJECT_ENV = Path(__file__).resolve().parents[2] / ".env"
 ENV_FILE = str(_PROJECT_ENV) if _PROJECT_ENV.exists() else find_dotenv(usecwd=True)
 load_dotenv(ENV_FILE)
 
-DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"  # a Groq model that supports tool calling
+# A Groq model that supports tool calling. Groq retires models over time; list the ones your
+# key can use with:
+#   python -c "from groq import Groq; print([m.id for m in Groq().models.list().data])"
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
 
 KEY_URLS = {
     "GROQ_API_KEY": "https://console.groq.com/keys",

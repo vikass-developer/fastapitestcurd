@@ -15,15 +15,15 @@ For each `add_routes(app, runnable, path=...)`, LangServe generates:
 from __future__ import annotations
 
 import logging
+import sys
 import uuid
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import Runnable, RunnableLambda
+from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
 from langgraph.checkpoint.memory import InMemorySaver
 from langserve import add_routes
 from pydantic import BaseModel, Field
@@ -31,34 +31,71 @@ from pydantic import BaseModel, Field
 from app.config import Settings
 from app.main import create_app
 
-from .graphs import build_data_agent, build_search_agent
+from .graphs import aask, ask, build_data_agent, build_search_agent, final_answer
 from .llm import ENV_FILE, get_chat_model, has_key
 
 log = logging.getLogger(__name__)
+
+# LangServe prints a banner with box-drawing characters at startup. On Windows consoles that use
+# a legacy code page (cp1252) this raised UnicodeEncodeError and the server exited. Print a
+# replacement character instead of crashing.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(errors="replace")
 
 
 class AgentQuestion(BaseModel):
     """Input for the agent endpoints."""
 
     question: str = Field(description="What you want to ask the agent", min_length=1)
+    thread_id: str | None = Field(
+        default=None,
+        max_length=100,
+        description="Send the thread_id from an earlier answer to continue that conversation. "
+        "Leave it out to start a new one.",
+    )
+
+
+class AgentAnswer(BaseModel):
+    answer: str
+    thread_id: str = Field(description="Send this back to ask a follow-up in the same conversation")
 
 
 def as_question_answer(agent: Runnable) -> Runnable:
-    """Wrap a LangGraph agent so the API takes {"question": ...} and returns the answer text.
+    """Wrap a LangGraph agent so the API takes {"question", "thread_id"} and returns the answer.
 
-    The raw agent takes and returns a list of messages. This wrapper gives the API a simple,
-    well-documented schema instead.
+    The raw agent takes and returns a list of messages, and its memory is keyed by
+    config["configurable"]["thread_id"]. LangServe drops `configurable` keys the runnable does
+    not declare, so a thread_id sent in "config" never reached the agent. Taking it in the input
+    and setting the config here makes memory work over HTTP.
     """
 
-    def to_messages(payload: Any) -> dict:
-        question = payload["question"] if isinstance(payload, dict) else payload.question
-        return {"messages": [HumanMessage(question)]}
+    def _prepare(payload: Any, config: RunnableConfig) -> tuple[str, RunnableConfig, str]:
+        data = payload if isinstance(payload, dict) else payload.model_dump()
+        thread_id = data.get("thread_id") or str(uuid.uuid4())
+        configurable = {**config.get("configurable", {}), "thread_id": thread_id}
+        return data["question"], {**config, "configurable": configurable}, thread_id
 
-    def final_answer(state: dict) -> str:
-        return state["messages"][-1].content
+    def run(payload: Any, config: RunnableConfig) -> dict:
+        question, agent_config, thread_id = _prepare(payload, config)
+        state = ask(agent, question, agent_config)
+        return {"answer": final_answer(state), "thread_id": thread_id}
 
-    chain = RunnableLambda(to_messages) | agent | RunnableLambda(final_answer)
-    return chain.with_types(input_type=AgentQuestion, output_type=str)
+    async def arun(payload: Any, config: RunnableConfig) -> dict:
+        question, agent_config, thread_id = _prepare(payload, config)
+        state = await aask(agent, question, agent_config)
+        return {"answer": final_answer(state), "thread_id": thread_id}
+
+    return RunnableLambda(run, afunc=arun, name="agent").with_types(
+        input_type=AgentQuestion, output_type=AgentAnswer
+    )
+
+
+class SummarizeInput(BaseModel):
+    """Input for the summarize chain."""
+
+    text: str = Field(description="The text to summarize", min_length=1)
+    max_words: int = Field(default=30, ge=3, le=300, description="Upper limit for the summary")
 
 
 def build_summarizer(model: BaseChatModel) -> Runnable:
@@ -69,17 +106,11 @@ def build_summarizer(model: BaseChatModel) -> Runnable:
             ("user", "{text}"),
         ]
     )
-    return prompt | model | StrOutputParser()
-
-
-def ensure_thread_id(config: dict, request: Request) -> dict:
-    """Memory is keyed by thread_id. Give each request a fresh thread unless the caller sends one.
-
-    Send {"config": {"configurable": {"thread_id": "my-chat"}}} to continue a conversation.
-    """
-    configurable = config.setdefault("configurable", {})
-    configurable.setdefault("thread_id", str(uuid.uuid4()))
-    return config
+    # Without explicit types LangServe infers every prompt variable as a string, so
+    # {"max_words": 10} was rejected with 422. SummarizeInput makes it a validated integer.
+    to_dict = RunnableLambda(lambda p: p if isinstance(p, dict) else p.model_dump())
+    chain = to_dict | prompt | model | StrOutputParser()
+    return chain.with_types(input_type=SummarizeInput, output_type=str)
 
 
 AGENTS = {
@@ -116,19 +147,16 @@ def create_server(model: BaseChatModel | None = None, settings: Settings | None 
 
     model = model or get_chat_model()
     memory = InMemorySaver()  # shared by both agents; each thread_id is its own conversation
-    agent_routes = {"per_req_config_modifier": ensure_thread_id}
 
     add_routes(
         app,
         as_question_answer(build_search_agent(model, checkpointer=memory)),
         path="/agents/search",
-        **agent_routes,
     )
     add_routes(
         app,
         as_question_answer(build_data_agent(model, checkpointer=memory)),
         path="/agents/data",
-        **agent_routes,
     )
     add_routes(app, build_summarizer(model), path="/agents/summarize")
     app.state.agents_enabled = True

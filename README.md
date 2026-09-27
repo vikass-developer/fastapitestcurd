@@ -51,7 +51,7 @@ A small backend with data ready for AI work: **FastAPI + SQL Server + pandas**, 
 ├── requirements.txt            # pinned dependencies: pip install -r requirements.txt
 ├── .env.example                # copy to .env and add your API keys
 ├── docs/                       # week1-review.md, agents-guide.md
-└── tests/                      # 47 tests; SQL ones use a throwaway DB, agents use a fake LLM
+└── tests/                      # 57 tests; SQL ones use a throwaway DB, agents use a fake LLM
 ```
 
 ## Setup (Windows, run locally)
@@ -90,7 +90,7 @@ notepad .env
 clean-dataset
 init-db
 
-:: 6. Run the tests (47 should pass)
+:: 6. Run the tests (57 should pass)
 pytest
 ```
 
@@ -121,7 +121,7 @@ Configuration comes from environment variables, or from the `.env` file:
 | `MSSQL_DRIVER` | `ODBC Driver 17 for SQL Server` | |
 | `MSSQL_AUTH` | `Trusted_Connection=yes` | Windows login; use `UID=sa;PWD=...` for a SQL login |
 | `GROQ_API_KEY` | — | Required for the agents |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Any Groq model that supports tool calling |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | Any Groq model that supports tool calling |
 | `SERPAPI_API_KEY` | — | Google search tool |
 | `LANGSMITH_API_KEY`, `LANGSMITH_TRACING`, `LANGSMITH_PROJECT` | — | Tracing, and needed for Studio |
 
@@ -210,7 +210,7 @@ Titanic source: [datasciencedojo/datasets](https://github.com/datasciencedojo/da
 ## Tests and lint
 
 ```bash
-pytest               # 47 tests; items tests run against both memory and SQL storage
+pytest               # 57 tests; items tests run against both memory and SQL storage
 ruff check src tests
 ```
 
