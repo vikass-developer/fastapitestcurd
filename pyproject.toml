@@ -45,6 +45,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 db = ["*.sql"]
+agents = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

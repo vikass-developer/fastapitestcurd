@@ -318,6 +318,37 @@ def test_tracing_turned_off_without_langsmith_key(monkeypatch: pytest.MonkeyPatc
     assert llm.os.environ["LANGSMITH_TRACING"] == "false"
 
 
+def test_web_ui_is_served(server: TestClient) -> None:
+    root = server.get("/", follow_redirects=False)
+    assert root.status_code in (302, 307) and root.headers["location"] == "/ui/"
+    page = server.get("/ui/")
+    assert page.status_code == 200 and "AI Agents Console" in page.text
+    for asset in ("app.js", "styles.css"):
+        assert server.get(f"/ui/{asset}").status_code == 200
+
+
+def test_docs_only_list_the_endpoints_we_use(server: TestClient) -> None:
+    paths = server.get("/openapi.json").json()["paths"]
+    assert not any("/c/{config_hash}" in p or p.endswith(("stream_log", "token_feedback"))
+                   for p in paths)
+    assert "/ui" not in paths and "/" not in paths
+
+
+def test_stream_events_ends_with_answer_and_thread_id(server: TestClient) -> None:
+    """The UI reads the top-level on_chain_end event (no parent_ids) for the final answer."""
+    import json
+
+    with server.stream(
+        "POST", "/agents/search/stream_events", json={"input": {"question": "hi"}}
+    ) as resp:
+        body = "".join(resp.iter_text())
+    data_lines = [line[5:] for line in body.splitlines() if line.startswith("data:")]
+    events = [json.loads(line) for line in data_lines if "{" in line]
+    root_end = [e for e in events if e["event"] == "on_chain_end" and not e["parent_ids"]]
+    assert root_end[-1]["data"]["output"]["thread_id"]
+    assert root_end[-1]["data"]["output"]["answer"]
+
+
 def test_agents_disabled_without_groq_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     client = TestClient(create_server(settings=Settings(storage="memory")))
