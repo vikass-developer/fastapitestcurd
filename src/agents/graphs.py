@@ -22,7 +22,7 @@ from langchain.agents.middleware import (
 )
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
-from langgraph.types import Checkpointer
+from langgraph.checkpoint.base import BaseCheckpointSaver as Checkpointer
 
 # Absolute imports on purpose: `langgraph dev` loads this file by path (see langgraph.json),
 # not as part of the `agents` package, so relative imports like `from .llm` would fail.
