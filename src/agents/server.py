@@ -146,16 +146,17 @@ def create_server(model: BaseChatModel | None = None, settings: Settings | None 
         return app
 
     model = model or get_chat_model()
-    memory = InMemorySaver()  # shared by both agents; each thread_id is its own conversation
+    search_memory = InMemorySaver()
+    data_memory = InMemorySaver()
 
     add_routes(
         app,
-        as_question_answer(build_search_agent(model, checkpointer=memory)),
+        as_question_answer(build_search_agent(model, checkpointer=search_memory)),
         path="/agents/search",
     )
     add_routes(
         app,
-        as_question_answer(build_data_agent(model, checkpointer=memory)),
+        as_question_answer(build_data_agent(model, checkpointer=data_memory)),
         path="/agents/data",
     )
     add_routes(app, build_summarizer(model), path="/agents/summarize")
