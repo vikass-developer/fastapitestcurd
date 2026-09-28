@@ -245,6 +245,30 @@ Both agents share one `InMemorySaver`. Conversations stay separate because each 
 
 If `GROQ_API_KEY` is missing, the server **still starts**. The agent routes are just disabled, and `/agents` says so. Regular endpoints never depend on an LLM key.
 
+## 17. A web UI on top of the APIs
+
+The UI in [`src/agents/static`](../src/agents/static) is plain HTML, CSS and JavaScript. FastAPI serves it:
+
+```python
+app.mount("/ui", StaticFiles(directory=STATIC_DIR, html=True), name="ui")   # index.html at /ui/
+@app.get("/", include_in_schema=False)                                       # / → /ui/
+```
+
+Because the page and the API come from the **same origin** (`127.0.0.1:8001`), the browser allows the calls without any CORS setup.
+
+**How the chat shows tool calls live.** It calls `POST /agents/search/stream_events`. The response is **Server-Sent Events**: blocks of `event: data` and `data: {...json...}` separated by blank lines, ending with `event: end`. `app.js` reads the stream with `fetch()` plus `response.body.getReader()` and handles four event types:
+
+| Event | What the UI does |
+|---|---|
+| `on_tool_start` (name, `data.input`) | Adds a step line: `🔧 google_search("…")` |
+| `on_tool_end` | Marks that step ✓ |
+| `on_chat_model_stream` (`data.chunk.content`) | Appends tokens to the bubble as they arrive |
+| `on_chain_end` with empty `parent_ids` | This is the top-level run finishing. `data.output` has the cleaned `answer` and the `thread_id`, which is saved for the next question |
+
+**Safety.** Agent answers are rendered from a very small Markdown subset. Everything is HTML-escaped first, and only `**bold**`, `` `code` ``, lists, tables and `http(s)` links become tags. Server data never goes into the page as raw HTML.
+
+**Cleaner `/docs`.** `add_routes(..., enabled_endpoints=[...])` drops the `/c/{config_hash}/…` copies, `stream_log` and `token_feedback`, taking the page from 63 paths to 30.
+
 ---
 
 ## How this was built (the process, so you can repeat it)

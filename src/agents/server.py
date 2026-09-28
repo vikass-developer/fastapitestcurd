@@ -1,6 +1,7 @@
 """One FastAPI server for everything: the Week 1 endpoints plus agents served by LangServe.
 
 Run:  uvicorn agents.server:app --app-dir src --port 8001
+UI:   http://127.0.0.1:8001/          (redirects to /ui/)
 Docs: http://127.0.0.1:8001/docs
 
 For each `add_routes(app, runnable, path=...)`, LangServe generates:
@@ -17,9 +18,12 @@ from __future__ import annotations
 import logging
 import sys
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -119,6 +123,16 @@ AGENTS = {
     "summarize": "Plain LCEL chain: summarize text in N words (no tools, no memory)",
 }
 
+STATIC_DIR = Path(__file__).with_name("static")
+
+# Only the endpoints we use. Without this, /docs also lists a copy of every route under
+# /c/{config_hash}/ plus stream_log and token_feedback: 63 paths instead of about 25.
+ROUTE_OPTIONS: dict[str, Any] = {
+    "enabled_endpoints": [
+        "invoke", "batch", "stream", "stream_events", "input_schema", "output_schema", "playground",
+    ],
+}
+
 
 def create_server(model: BaseChatModel | None = None, settings: Settings | None = None) -> FastAPI:
     # Start from the Week 1 app: items CRUD, passengers, stats and health keep working as-is.
@@ -140,6 +154,13 @@ def create_server(model: BaseChatModel | None = None, settings: Settings | None 
             for name, text in AGENTS.items()
         }
 
+    # The web UI: plain HTML/CSS/JS served by this same app, so no CORS or build step is needed.
+    app.mount("/ui", StaticFiles(directory=STATIC_DIR, html=True), name="ui")
+
+    @app.get("/", include_in_schema=False)
+    async def root() -> RedirectResponse:
+        return RedirectResponse("/ui/")
+
     if model is None and not has_key("GROQ_API_KEY"):
         log.warning("GROQ_API_KEY is empty: agent routes are disabled. Add it to %s.", ENV_FILE)
         app.state.agents_enabled = False
@@ -153,13 +174,15 @@ def create_server(model: BaseChatModel | None = None, settings: Settings | None 
         app,
         as_question_answer(build_search_agent(model, checkpointer=search_memory)),
         path="/agents/search",
+        **ROUTE_OPTIONS,
     )
     add_routes(
         app,
         as_question_answer(build_data_agent(model, checkpointer=data_memory)),
         path="/agents/data",
+        **ROUTE_OPTIONS,
     )
-    add_routes(app, build_summarizer(model), path="/agents/summarize")
+    add_routes(app, build_summarizer(model), path="/agents/summarize", **ROUTE_OPTIONS)
     app.state.agents_enabled = True
     return app
 

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Agents Console</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">◆</span>
+      <div>
+        <h1>AI Agents Console</h1>
+        <p class="subtitle">FastAPI · LangChain · SQL Server</p>
+      </div>
+    </div>
+    <div class="status" aria-live="polite">
+      <span class="pill" id="status-db">Database …</span>
+      <span class="pill" id="status-agents">Agents …</span>
+      <a class="pill link" href="/docs" target="_blank" rel="noopener">API docs ↗</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button role="tab" class="tab" data-tab="chat" aria-selected="true">Chat</button>
+    <button role="tab" class="tab" data-tab="summarize" aria-selected="false">Summarize</button>
+    <button role="tab" class="tab" data-tab="items" aria-selected="false">Items</button>
+    <button role="tab" class="tab" data-tab="titanic" aria-selected="false">Titanic data</button>
+  </nav>
+
+  <main>
+    <!-- ============================================================ Chat -->
+    <section id="tab-chat" class="panel" role="tabpanel">
+      <div class="chat-toolbar">
+        <div class="segmented" role="radiogroup" aria-label="Agent">
+          <label><input type="radio" name="agent" value="search" checked> Google search agent</label>
+          <label><input type="radio" name="agent" value="data"> Titanic data agent</label>
+        </div>
+        <div class="toolbar-right">
+          <label class="toggle" title="Show each tool call while the agent works">
+            <input type="checkbox" id="show-steps" checked> Show steps
+          </label>
+          <button class="btn ghost" id="new-chat" type="button">New chat</button>
+        </div>
+      </div>
+      <p class="hint" id="agent-hint"></p>
+
+      <div class="chat-log" id="chat-log" aria-live="polite"></div>
+
+      <form class="chat-input" id="chat-form">
+        <textarea id="chat-question" rows="2" placeholder="Ask something…" required></textarea>
+        <button class="btn primary" id="chat-send" type="submit">Send</button>
+      </form>
+      <p class="meta" id="thread-meta"></p>
+    </section>
+
+    <!-- ============================================================ Summarize -->
+    <section id="tab-summarize" class="panel" role="tabpanel" hidden>
+      <form class="card form" id="summarize-form">
+        <label for="sum-text">Text to summarize</label>
+        <textarea id="sum-text" rows="8" required
+          placeholder="Paste an article, email or notes…"></textarea>
+        <div class="row">
+          <label for="sum-words">Max words</label>
+          <input id="sum-words" type="number" min="3" max="300" value="30">
+          <button class="btn primary" type="submit">Summarize</button>
+        </div>
+      </form>
+      <div class="card result" id="sum-result" hidden></div>
+    </section>
+
+    <!-- ============================================================ Items -->
+    <section id="tab-items" class="panel" role="tabpanel" hidden>
+      <form class="card form" id="item-form">
+        <h2 id="item-form-title">Add an item</h2>
+        <div class="grid">
+          <label>Name <input id="item-name" required maxlength="100"></label>
+          <label>Price <input id="item-price" type="number" step="0.01" min="0.01" required></label>
+          <label class="wide">Description <input id="item-desc" maxlength="500"></label>
+          <label class="wide">Tags (comma separated) <input id="item-tags" placeholder="office, paper"></label>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="item-submit" type="submit">Add item</button>
+          <button class="btn ghost" id="item-cancel" type="button" hidden>Cancel edit</button>
+          <span class="form-error" id="item-error" role="alert"></span>
+        </div>
+      </form>
+      <div class="card">
+        <div class="row between">
+          <h2>Items in SQL Server</h2>
+          <button class="btn ghost" id="items-refresh" type="button">Refresh</button>
+        </div>
+        <div class="table-wrap" id="items-table"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ Titanic -->
+    <section id="tab-titanic" class="panel" role="tabpanel" hidden>
+      <form class="card form" id="pass-form">
+        <h2>Search passengers</h2>
+        <div class="grid">
+          <label>Class
+            <select id="pass-class"><option value="">Any</option><option>1</option><option>2</option><option>3</option></select>
+          </label>
+          <label>Sex
+            <select id="pass-sex"><option value="">Any</option><option>female</option><option>male</option></select>
+          </label>
+          <label>Survived
+            <select id="pass-survived"><option value="">Any</option><option value="true">Yes</option><option value="false">No</option></select>
+          </label>
+          <label>Name contains <input id="pass-name" minlength="2" maxlength="50"></label>
+        </div>
+        <div class="row">
+          <button class="btn primary" type="submit">Search</button>
+          <span class="form-error" id="pass-error" role="alert"></span>
+        </div>
+        <div class="table-wrap" id="pass-table"></div>
+      </form>
+
+      <div class="stats" id="stats"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

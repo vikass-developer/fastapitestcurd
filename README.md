@@ -46,12 +46,13 @@ A small backend with data ready for AI work: **FastAPI + SQL Server + pandas**, 
 │       ├── tools.py            # @tool google_search + 5 SQL data tools
 │       ├── graphs.py           # create_agent factories (memory, human approval)
 │       ├── chat.py             # `agent-chat`: test in the terminal
-│       └── server.py           # FastAPI + LangServe add_routes
+│       ├── server.py           # FastAPI + LangServe add_routes + serves the UI
+│       └── static/             # web UI: index.html, app.js, styles.css
 ├── langgraph.json              # tells `langgraph dev` / Studio where the graphs are
 ├── requirements.txt            # pinned dependencies: pip install -r requirements.txt
 ├── .env.example                # copy to .env and add your API keys
 ├── docs/                       # week1-review.md, agents-guide.md
-└── tests/                      # 57 tests; SQL ones use a throwaway DB, agents use a fake LLM
+└── tests/                      # 60 tests; SQL ones use a throwaway DB, agents use a fake LLM
 ```
 
 ## Setup (Windows, run locally)
@@ -90,7 +91,7 @@ notepad .env
 clean-dataset
 init-db
 
-:: 6. Run the tests (57 should pass)
+:: 6. Run the tests (60 should pass)
 pytest
 ```
 
@@ -105,7 +106,7 @@ pytest
 | What | Command | Open |
 |---|---|---|
 | Week 1 API only | `uvicorn app.main:app --reload --app-dir src` | http://127.0.0.1:8000/docs |
-| Week 1 API **+ agents** (LangServe) | `uvicorn agents.server:app --app-dir src --port 8001` | http://127.0.0.1:8001/docs |
+| **Web UI** + Week 1 API + agents (LangServe) | `uvicorn agents.server:app --app-dir src --port 8001` | http://127.0.0.1:8001 (UI) and http://127.0.0.1:8001/docs |
 | Chat with an agent in the terminal | `agent-chat search` or `agent-chat data` (add `--approve` to approve each search) | — |
 | LangSmith Studio | `langgraph dev` | opens Studio in your browser |
 
@@ -137,6 +138,19 @@ The code is in [`src/agents`](src/agents). There's a step-by-step learning guide
 | `summarize` | none: a plain `prompt \| model \| parser` chain | `/agents/summarize/*` |
 
 For each agent, LangServe generates `POST /invoke`, `/batch`, `/stream` and `/stream_events`, plus `GET /input_schema` and a `/playground/` page. These sit on the same server as the Week 1 endpoints (`/items`, `/passengers`, `/stats`, `/health`).
+
+## Web UI
+
+Open http://127.0.0.1:8001 after starting the server. It's plain HTML, CSS and JavaScript in [`src/agents/static`](src/agents/static), served by the same FastAPI app, so there's no Node, no build step and no CORS setup.
+
+| Tab | What it does | APIs it calls |
+|---|---|---|
+| **Chat** | Chat with the search or data agent. Tool calls appear live while the agent works; memory is kept per conversation; "New chat" starts over | `POST /agents/{search,data}/stream_events` |
+| **Summarize** | Paste text and set a word limit | `POST /agents/summarize/invoke` |
+| **Items** | Create, list, edit and delete items stored in SQL Server | `GET/POST /items`, `PATCH/DELETE /items/{id}` |
+| **Titanic data** | Passenger search plus the 5 SQL analytics tables | `GET /passengers`, `GET /stats/*` |
+
+The header shows whether the database and the agents are ready. It works without a Groq key too: the chat and summarize tabs then tell you the agents are off.
 
 ## API endpoints
 
@@ -210,7 +224,7 @@ Titanic source: [datasciencedojo/datasets](https://github.com/datasciencedojo/da
 ## Tests and lint
 
 ```bash
-pytest               # 57 tests; items tests run against both memory and SQL storage
+pytest               # 60 tests; items tests run against both memory and SQL storage
 ruff check src tests
 ```
 
